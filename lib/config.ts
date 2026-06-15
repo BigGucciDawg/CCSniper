@@ -22,8 +22,8 @@ function bool(name: string, fallback: boolean): boolean {
 export const config = {
   apiBase: process.env.CC_API_BASE || "https://api.collectorcrypt.com",
 
-  // never consider a card priced above this (USD)
-  maxSpendUsd: num("CC_MAX_SPEND_USD", 100),
+  // never consider a card priced above this (USD) — also caps the listing query
+  maxSpendUsd: num("CC_MAX_SPEND_USD", 200),
   // require price <= insured * (1 - minMargin). 0 = any discount below insured.
   // raise to ~0.12-0.15 before going live so 2% fee + gas don't eat the edge.
   minMargin: num("CC_MIN_MARGIN", 0),
@@ -46,7 +46,7 @@ export const config = {
   // Default false => dry-run (logs what it WOULD buy, spends nothing).
   botLive: bool("CC_BOT_LIVE", false),
   // hard per-purchase price ceiling (USD). The wallet balance is the total cap.
-  maxPriceUsd: num("CC_MAX_PRICE_USD", 100),
+  maxPriceUsd: num("CC_MAX_PRICE_USD", 200),
   // require at least this discount to insured value before buying (e.g. 0.10 = 10%).
   // separate from the scanner's minMargin so the buyer can be stricter.
   buyMinMargin: num("CC_BUY_MIN_MARGIN", 0.1),
