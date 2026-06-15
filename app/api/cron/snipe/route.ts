@@ -37,6 +37,7 @@ async function alert(text: string) {
 function eligible(cands: Candidate[]): Candidate[] {
   return cands
     .filter((c) => c.currency && config.buyCurrencies.includes(c.currency))
+    .filter((c) => c.type && config.buyTypes.includes(c.type)) // cards only, no sealed
     .filter((c) => c.priceUsd <= config.maxPriceUsd)
     .filter((c) => c.spreadPct >= config.buyMinMargin * 100)
     .filter((c) => !recentlyAttempted.has(c.nftAddress))

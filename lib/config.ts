@@ -52,6 +52,11 @@ export const config = {
   buyMinMargin: num("CC_BUY_MIN_MARGIN", 0.1),
   // only buy listings in these currencies (we hold/pay these). USDC only for v1.
   buyCurrencies: list("CC_BUY_CURRENCIES", ["USDC"]),
+  // only buy these item types. "Card" = graded singles; excludes "Sealed"
+  // (booster bundles/boxes/packs).
+  buyTypes: list("CC_BUY_TYPES", ["Card"]),
+  // where bought NFTs are forwarded after purchase. Empty = keep in burner.
+  destWallet: process.env.CC_DEST_WALLET || "",
   // never make more than this many purchases per cron run (throttle).
   maxBuysPerRun: num("CC_MAX_BUYS_PER_RUN", 1),
   // keep this much SOL in reserve for gas (don't drain it).

@@ -8,6 +8,7 @@ export interface Candidate {
   nftAddress: string;
   cardId: string | null;
   category: string | null;
+  type: string | null; // "Card" | "Sealed" | ...
   itemName: string;
   grade: string | null;
   gradingCompany: string | null;
@@ -97,6 +98,7 @@ function evaluate(card: any, solUsd: number): Candidate | null {
     nftAddress: nft,
     cardId: card?.id ?? null,
     category,
+    type: card?.type ?? null,
     itemName: String(card?.itemName ?? "").slice(0, 200),
     grade: card?.grade ?? null,
     gradingCompany: card?.gradingCompany ?? null,
