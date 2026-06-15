@@ -22,8 +22,11 @@ export function getKeypair(): Keypair {
 }
 
 export function getConnection(): Connection {
-  const url = process.env.CC_SNIPER_RPC_URL;
+  let url = process.env.CC_SNIPER_RPC_URL;
   if (!url) throw new Error("CC_SNIPER_RPC_URL is not set");
+  // tolerate common paste slips: surrounding quotes/whitespace, missing scheme
+  url = url.trim().replace(/^['"]|['"]$/g, "");
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
   return new Connection(url, "confirmed");
 }
 
