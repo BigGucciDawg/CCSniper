@@ -30,6 +30,26 @@ export function getConnection(): Connection {
   return new Connection(url, "confirmed");
 }
 
+// Wait for a buy tx to land before we try to forward the NFT (it isn't in the
+// burner until the buy confirms). Polls statuses; resolves true on success.
+export async function confirmSignature(
+  conn: Connection,
+  signature: string,
+  timeoutMs = 30000
+): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const st = await conn.getSignatureStatuses([signature], { searchTransactionHistory: true });
+    const v = st.value[0];
+    if (v) {
+      if (v.err) throw new Error(`buy tx failed on-chain: ${JSON.stringify(v.err)}`);
+      if (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized") return true;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
+}
+
 export interface Balances {
   sol: number; // in SOL
   usdc: number; // in USDC

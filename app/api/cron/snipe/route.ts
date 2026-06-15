@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sweep, type Candidate } from "@/lib/scan";
 import { config } from "@/lib/config";
-import { getKeypair, getConnection, getBalances } from "@/lib/wallet";
+import { getKeypair, getConnection, getBalances, confirmSignature } from "@/lib/wallet";
 import { executeBuy } from "@/lib/buy";
+import { forwardNft } from "@/lib/transfer";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -106,7 +107,28 @@ export async function GET(req: NextRequest) {
         remainingUsdc -= c.priceUsd;
         const line = `✅ cc-sniper BOUGHT ${c.itemName} for $${c.priceUsd} (insured $${c.insuredUsd}, -${c.spreadPct}%) sig=${res.signature ?? "?"}`;
         await alert(line);
-        bought.push({ ...res, item: c.itemName, priceUsd: c.priceUsd, nftAddress: c.nftAddress });
+        const record: Record<string, unknown> = {
+          ...res,
+          item: c.itemName,
+          priceUsd: c.priceUsd,
+          nftAddress: c.nftAddress,
+        };
+
+        // forward the bought NFT to the destination wallet (best-effort: a
+        // failure leaves it safely in the burner for the sweep to retry).
+        if (config.destWallet && res.signature) {
+          try {
+            await confirmSignature(conn, String(res.signature));
+            const fsig = await forwardNft(kp, c.nftAddress, config.destWallet);
+            record.forwardedTo = config.destWallet;
+            record.forwardSig = fsig;
+            await alert(`➡️ cc-sniper forwarded ${c.itemName} to ${config.destWallet} sig=${fsig}`);
+          } catch (e: any) {
+            record.forwardError = String(e?.message ?? e);
+            await alert(`⚠️ cc-sniper forward FAILED for ${c.itemName} (held in burner): ${e?.message ?? e}`);
+          }
+        }
+        bought.push(record);
       } catch (e: any) {
         const msg = `⚠️ cc-sniper buy FAILED for ${c.itemName} ($${c.priceUsd}): ${e?.message ?? e}`;
         await alert(msg);
