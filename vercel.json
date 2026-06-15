@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/snipe",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/sweep",
+      "schedule": "* * * * *"
     }
   ]
 }
