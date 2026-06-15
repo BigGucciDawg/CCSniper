@@ -84,21 +84,25 @@ export async function GET(req: NextRequest) {
     const owner = kp.publicKey;
     const bought: unknown[] = [];
 
-    for (const c of picks.slice(0, config.maxBuysPerRun)) {
-      // re-check the live balance before EACH buy: the wallet balance is the cap
-      const bal = await getBalances(conn, owner);
-      if (bal.sol <= config.minSolReserve) {
-        await alert(`⛔ cc-sniper: SOL too low for gas (${bal.sol}). Skipping buys.`);
-        break;
-      }
-      if (bal.usdc < c.priceUsd) {
-        // can't afford the best pick; budget effectively spent
-        break;
-      }
+    // wallet balance is the hard cap. Read once per run; decrement optimistically
+    // as we buy so a multi-buy run can't overspend.
+    const bal = await getBalances(conn, owner);
+    if (bal.sol <= config.minSolReserve) {
+      await alert(`⛔ cc-sniper: SOL too low for gas (${bal.sol}). Skipping buys.`);
+      return NextResponse.json({ ok: true, mode: "LIVE", startedAt, note: "SOL too low for gas", bought: [] });
+    }
+    let remainingUsdc = bal.usdc;
+
+    for (const c of picks) {
+      if (bought.length >= config.maxBuysPerRun) break;
+      // skip picks we can't afford and fall through to the next-biggest discount,
+      // rather than stalling on an unaffordable top pick
+      if (remainingUsdc < c.priceUsd) continue;
 
       recentlyAttempted.add(c.nftAddress);
       try {
         const res = await executeBuy(kp, c);
+        remainingUsdc -= c.priceUsd;
         const line = `✅ cc-sniper BOUGHT ${c.itemName} for $${c.priceUsd} (insured $${c.insuredUsd}, -${c.spreadPct}%) sig=${res.signature ?? "?"}`;
         await alert(line);
         bought.push({ ...res, item: c.itemName, priceUsd: c.priceUsd, nftAddress: c.nftAddress });
