@@ -1,0 +1,126 @@
+import { NextRequest, NextResponse } from "next/server";
+import { sweep, type Candidate } from "@/lib/scan";
+import { config } from "@/lib/config";
+import { getKeypair, getConnection, getBalances } from "@/lib/wallet";
+import { executeBuy } from "@/lib/buy";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+// Best-effort guard against re-buying the same listing while it lingers in the
+// ~60s-cached listing feed. Lives only as long as the warm serverless instance,
+// which is fine: a duplicate attempt fails harmlessly on-chain (already sold),
+// costing a sliver of gas, never a double USDC spend.
+const recentlyAttempted = new Set<string>();
+
+function authorized(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return true;
+  return req.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+async function alert(text: string) {
+  if (!config.alertWebhook) return;
+  try {
+    await fetch(config.alertWebhook, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: text, text }), // works for Discord & generic
+    });
+  } catch {
+    /* alerting must never break the run */
+  }
+}
+
+// candidates that pass the BUYER's (stricter) gates, best discount first
+function eligible(cands: Candidate[]): Candidate[] {
+  return cands
+    .filter((c) => c.currency && config.buyCurrencies.includes(c.currency))
+    .filter((c) => c.priceUsd <= config.maxPriceUsd)
+    .filter((c) => c.spreadPct >= config.buyMinMargin * 100)
+    .filter((c) => !recentlyAttempted.has(c.nftAddress))
+    .sort((a, b) => b.spreadPct - a.spreadPct || b.spreadUsd - a.spreadUsd);
+}
+
+export async function GET(req: NextRequest) {
+  if (!authorized(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const startedAt = new Date().toISOString();
+  try {
+    const result = await sweep();
+    const picks = eligible(result.candidates);
+
+    // ---- DRY RUN: never spends. Shows exactly what it would buy. ----
+    if (!config.botLive) {
+      return NextResponse.json({
+        ok: true,
+        mode: "DRY_RUN",
+        startedAt,
+        scanned: result.scanned,
+        belowInsured: result.candidates.length,
+        eligible: picks.length,
+        wouldBuy: picks.slice(0, config.maxBuysPerRun).map((c) => ({
+          item: c.itemName,
+          priceUsd: c.priceUsd,
+          insuredUsd: c.insuredUsd,
+          discountPct: c.spreadPct,
+          currency: c.currency,
+          nftAddress: c.nftAddress,
+          url: c.url,
+        })),
+      });
+    }
+
+    // ---- LIVE ----
+    if (picks.length === 0) {
+      return NextResponse.json({ ok: true, mode: "LIVE", startedAt, eligible: 0, bought: [] });
+    }
+
+    const kp = getKeypair();
+    const conn = getConnection();
+    const owner = kp.publicKey;
+    const bought: unknown[] = [];
+
+    for (const c of picks.slice(0, config.maxBuysPerRun)) {
+      // re-check the live balance before EACH buy: the wallet balance is the cap
+      const bal = await getBalances(conn, owner);
+      if (bal.sol <= config.minSolReserve) {
+        await alert(`⛔ cc-sniper: SOL too low for gas (${bal.sol}). Skipping buys.`);
+        break;
+      }
+      if (bal.usdc < c.priceUsd) {
+        // can't afford the best pick; budget effectively spent
+        break;
+      }
+
+      recentlyAttempted.add(c.nftAddress);
+      try {
+        const res = await executeBuy(kp, c);
+        const line = `✅ cc-sniper BOUGHT ${c.itemName} for $${c.priceUsd} (insured $${c.insuredUsd}, -${c.spreadPct}%) sig=${res.signature ?? "?"}`;
+        await alert(line);
+        bought.push({ ...res, item: c.itemName, priceUsd: c.priceUsd, nftAddress: c.nftAddress });
+      } catch (e: any) {
+        const msg = `⚠️ cc-sniper buy FAILED for ${c.itemName} ($${c.priceUsd}): ${e?.message ?? e}`;
+        await alert(msg);
+        bought.push({ error: String(e?.message ?? e), item: c.itemName, nftAddress: c.nftAddress });
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      mode: "LIVE",
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      eligible: picks.length,
+      bought,
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, startedAt, error: String(err?.message ?? err) },
+      { status: 500 }
+    );
+  }
+}

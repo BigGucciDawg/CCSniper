@@ -13,6 +13,12 @@ function list(name: string, fallback: string[]): string[] {
   return v.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+function bool(name: string, fallback: boolean): boolean {
+  const v = process.env[name];
+  if (v == null) return fallback;
+  return ["1", "true", "yes", "on"].includes(v.trim().toLowerCase());
+}
+
 export const config = {
   apiBase: process.env.CC_API_BASE || "https://api.collectorcrypt.com",
 
@@ -34,4 +40,22 @@ export const config = {
   solUsdFallback: num("CC_SOL_USD_FALLBACK", 150),
 
   userAgent: "cc-sniper/1.0 (+vercel-cron)",
+
+  // ---- buyer (phase 2) ----
+  // MASTER SWITCH: nothing is ever bought unless this is explicitly true.
+  // Default false => dry-run (logs what it WOULD buy, spends nothing).
+  botLive: bool("CC_BOT_LIVE", false),
+  // hard per-purchase price ceiling (USD). The wallet balance is the total cap.
+  maxPriceUsd: num("CC_MAX_PRICE_USD", 100),
+  // require at least this discount to insured value before buying (e.g. 0.10 = 10%).
+  // separate from the scanner's minMargin so the buyer can be stricter.
+  buyMinMargin: num("CC_BUY_MIN_MARGIN", 0.1),
+  // only buy listings in these currencies (we hold/pay these). USDC only for v1.
+  buyCurrencies: list("CC_BUY_CURRENCIES", ["USDC"]),
+  // never make more than this many purchases per cron run (throttle).
+  maxBuysPerRun: num("CC_MAX_BUYS_PER_RUN", 1),
+  // keep this much SOL in reserve for gas (don't drain it).
+  minSolReserve: num("CC_MIN_SOL_RESERVE", 0.01),
+  // optional Discord/Telegram-style webhook to alert + audit each buy attempt.
+  alertWebhook: process.env.CC_ALERT_WEBHOOK || "",
 };
