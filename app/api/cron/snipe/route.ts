@@ -35,12 +35,13 @@ async function alert(text: string) {
   }
 }
 
-// required discount (%) for a card: cheaper cards (insured < threshold) get a
-// lower floor so small bargains still qualify.
-function requiredMarginPct(insuredUsd: number): number {
-  const margin =
-    insuredUsd < config.lowValueThresholdUsd ? config.lowValueMinMargin : config.buyMinMargin;
-  return margin * 100;
+// required discount (%) for a card at a given price, from the band schedule.
+// Returns Infinity for prices above the top band so they're always excluded.
+function requiredMarginPct(priceUsd: number): number {
+  for (const b of config.marginBands) {
+    if (priceUsd <= b.maxPriceUsd) return b.minMargin * 100;
+  }
+  return Infinity;
 }
 
 // candidates that pass the BUYER's (stricter) gates, best discount first
@@ -48,8 +49,7 @@ function eligible(cands: Candidate[]): Candidate[] {
   return cands
     .filter((c) => c.currency && config.buyCurrencies.includes(c.currency))
     .filter((c) => c.type && config.buyTypes.includes(c.type)) // cards only, no sealed
-    .filter((c) => c.priceUsd <= config.maxPriceUsd)
-    .filter((c) => c.spreadPct >= requiredMarginPct(c.insuredUsd))
+    .filter((c) => c.spreadPct >= requiredMarginPct(c.priceUsd)) // price-band discount + cap
     .filter((c) => !recentlyAttempted.has(c.nftAddress))
     .sort((a, b) => b.spreadPct - a.spreadPct || b.spreadUsd - a.spreadUsd);
 }

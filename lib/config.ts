@@ -19,11 +19,30 @@ function bool(name: string, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(v.trim().toLowerCase());
 }
 
+export interface MarginBand {
+  maxPriceUsd: number; // applies to cards priced at or below this
+  minMargin: number; // required discount to insured value (0.05 = 5%)
+}
+
+// Parse "75:0.05,200:0.10,350:0.15" -> sorted bands. Each pair is price:margin.
+function bands(name: string, fallback: MarginBand[]): MarginBand[] {
+  const v = process.env[name];
+  if (!v) return fallback;
+  const parsed: MarginBand[] = [];
+  for (const pair of v.split(",")) {
+    const [p, m] = pair.split(":").map((s) => Number(s.trim()));
+    if (Number.isFinite(p) && Number.isFinite(m)) parsed.push({ maxPriceUsd: p, minMargin: m });
+  }
+  parsed.sort((a, b) => a.maxPriceUsd - b.maxPriceUsd);
+  return parsed.length ? parsed : fallback;
+}
+
 export const config = {
   apiBase: process.env.CC_API_BASE || "https://api.collectorcrypt.com",
 
-  // never consider a card priced above this (USD) — also caps the listing query
-  maxSpendUsd: num("CC_MAX_SPEND_USD", 200),
+  // never consider a card priced above this (USD) — also caps the listing query.
+  // keep >= the largest margin band's maxPriceUsd.
+  maxSpendUsd: num("CC_MAX_SPEND_USD", 350),
   // require price <= insured * (1 - minMargin). 0 = any discount below insured.
   // raise to ~0.12-0.15 before going live so 2% fee + gas don't eat the edge.
   minMargin: num("CC_MIN_MARGIN", 0),
@@ -45,15 +64,16 @@ export const config = {
   // MASTER SWITCH: nothing is ever bought unless this is explicitly true.
   // Default false => dry-run (logs what it WOULD buy, spends nothing).
   botLive: bool("CC_BOT_LIVE", false),
-  // hard per-purchase price ceiling (USD). The wallet balance is the total cap.
-  maxPriceUsd: num("CC_MAX_PRICE_USD", 200),
-  // require at least this discount to insured value before buying (e.g. 0.10 = 10%).
-  // separate from the scanner's minMargin so the buyer can be stricter.
-  buyMinMargin: num("CC_BUY_MIN_MARGIN", 0.1),
-  // lower the required discount for cheaper cards: any card with insured value
-  // below lowValueThresholdUsd only needs lowValueMinMargin discount.
-  lowValueThresholdUsd: num("CC_LOWVAL_THRESHOLD_USD", 75),
-  lowValueMinMargin: num("CC_LOWVAL_MIN_MARGIN", 0.05),
+  // Required discount by price band: the first band whose maxPriceUsd >= the
+  // card's price applies. Cards priced above the largest band are never bought,
+  // so the top band's maxPriceUsd is the effective hard spend ceiling.
+  //   <= $75 -> 5% off, <= $200 -> 10% off, <= $350 -> 15% off, else skip.
+  // Override via env: CC_MARGIN_BANDS="75:0.05,200:0.10,350:0.15"
+  marginBands: bands("CC_MARGIN_BANDS", [
+    { maxPriceUsd: 75, minMargin: 0.05 },
+    { maxPriceUsd: 200, minMargin: 0.1 },
+    { maxPriceUsd: 350, minMargin: 0.15 },
+  ]),
   // only buy listings in these currencies (we hold/pay these). USDC only for v1.
   buyCurrencies: list("CC_BUY_CURRENCIES", ["USDC"]),
   // only buy these item types. "Card" = graded singles; excludes "Sealed"
