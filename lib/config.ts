@@ -50,6 +50,10 @@ export const config = {
   // require at least this discount to insured value before buying (e.g. 0.10 = 10%).
   // separate from the scanner's minMargin so the buyer can be stricter.
   buyMinMargin: num("CC_BUY_MIN_MARGIN", 0.1),
+  // lower the required discount for cheaper cards: any card with insured value
+  // below lowValueThresholdUsd only needs lowValueMinMargin discount.
+  lowValueThresholdUsd: num("CC_LOWVAL_THRESHOLD_USD", 75),
+  lowValueMinMargin: num("CC_LOWVAL_MIN_MARGIN", 0.05),
   // only buy listings in these currencies (we hold/pay these). USDC only for v1.
   buyCurrencies: list("CC_BUY_CURRENCIES", ["USDC"]),
   // only buy these item types. "Card" = graded singles; excludes "Sealed"
