@@ -35,9 +35,11 @@ async function alert(text: string) {
   }
 }
 
-// required discount (%) for a card at a given price, from the band schedule.
-// Returns Infinity for prices above the top band so they're always excluded.
-function requiredMarginPct(priceUsd: number): number {
+// required discount (%) for a card, by category. One Piece uses a flat floor
+// (supply-building); other categories use the price-band schedule. Returns
+// Infinity for prices above the top band so they're always excluded.
+function requiredMarginPct(category: string | null, priceUsd: number): number {
+  if (category === "One Piece") return config.onePieceMinMargin * 100;
   for (const b of config.marginBands) {
     if (priceUsd <= b.maxPriceUsd) return b.minMargin * 100;
   }
@@ -49,7 +51,7 @@ function eligible(cands: Candidate[]): Candidate[] {
   return cands
     .filter((c) => c.currency && config.buyCurrencies.includes(c.currency))
     .filter((c) => c.type && config.buyTypes.includes(c.type)) // cards only, no sealed
-    .filter((c) => c.spreadPct >= requiredMarginPct(c.priceUsd)) // price-band discount + cap
+    .filter((c) => c.spreadPct >= requiredMarginPct(c.category, c.priceUsd))
     .filter((c) => !recentlyAttempted.has(c.nftAddress))
     .sort((a, b) => b.spreadPct - a.spreadPct || b.spreadUsd - a.spreadUsd);
 }

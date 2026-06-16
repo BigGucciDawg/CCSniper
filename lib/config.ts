@@ -49,7 +49,7 @@ export const config = {
   // ignore dust / placeholder insured values
   minInsuredUsd: num("CC_MIN_INSURED_USD", 1),
   // only these categories are scanned (server-side filter + client guard)
-  categories: list("CC_CATEGORIES", ["Pokemon"]),
+  categories: list("CC_CATEGORIES", ["Pokemon", "One Piece"]),
 
   // pagination
   pageStep: num("CC_PAGE_STEP", 100),
@@ -74,6 +74,12 @@ export const config = {
     { maxPriceUsd: 200, minMargin: 0.1 },
     { maxPriceUsd: 350, minMargin: 0.15 },
   ]),
+  // One Piece is bought to build supply for the new game mode: flat min discount,
+  // and (see forwardCategories) kept in the burner rather than sent to treasury.
+  onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.175),
+  // categories whose cards are forwarded to destWallet after purchase. Anything
+  // not listed here is KEPT in the burner (e.g. One Piece supply).
+  forwardCategories: list("CC_FORWARD_CATEGORIES", ["Pokemon"]),
   // only buy listings in these currencies (we hold/pay these). USDC only for v1.
   buyCurrencies: list("CC_BUY_CURRENCIES", ["USDC"]),
   // only buy these item types. "Card" = graded singles; excludes "Sealed"
