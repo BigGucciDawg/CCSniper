@@ -39,7 +39,9 @@ async function alert(text: string) {
 // (supply-building); other categories use the price-band schedule. Returns
 // Infinity for prices above the top band so they're always excluded.
 function requiredMarginPct(category: string | null, priceUsd: number): number {
-  if (category === "One Piece") return config.onePieceMinMargin * 100;
+  if (category === "One Piece") {
+    return priceUsd <= config.onePieceMaxPriceUsd ? config.onePieceMinMargin * 100 : Infinity;
+  }
   for (const b of config.marginBands) {
     if (priceUsd <= b.maxPriceUsd) return b.minMargin * 100;
   }

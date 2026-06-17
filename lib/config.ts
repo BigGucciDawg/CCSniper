@@ -70,13 +70,14 @@ export const config = {
   //   <= $75 -> 5% off, <= $200 -> 10% off, <= $350 -> 15% off, else skip.
   // Override via env: CC_MARGIN_BANDS="75:0.05,200:0.10,350:0.15"
   marginBands: bands("CC_MARGIN_BANDS", [
-    { maxPriceUsd: 75, minMargin: 0.05 },
+    { maxPriceUsd: 75, minMargin: 0.03 },
     { maxPriceUsd: 200, minMargin: 0.1 },
     { maxPriceUsd: 350, minMargin: 0.15 },
   ]),
   // One Piece is bought to build supply for the new game mode: flat min discount,
-  // and (see forwardCategories) kept in the burner rather than sent to treasury.
-  onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.175),
+  // its own price ceiling, and (see forwardCategories) kept in the burner.
+  onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.125),
+  onePieceMaxPriceUsd: num("CC_ONEPIECE_MAX_PRICE_USD", 100),
   // categories whose cards are forwarded to destWallet after purchase. Anything
   // not listed here is KEPT in the burner (e.g. One Piece supply).
   forwardCategories: list("CC_FORWARD_CATEGORIES", ["Pokemon"]),
