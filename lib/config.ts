@@ -67,13 +67,13 @@ export const config = {
   // Required discount by price band: the first band whose maxPriceUsd >= the
   // card's price applies. Cards priced above the largest band are never bought,
   // so the top band's maxPriceUsd is the effective hard spend ceiling.
-  //   <= $50 -> 0%, <= $75 -> 3%, <= $100 -> 5%, <= $200 -> 10%, <= $350 -> 15%.
+  //   <= $50 -> 0%, <= $75 -> 3%, <= $100 -> 7.5%, <= $200 -> 10%, <= $350 -> 15%.
   // 0% still never buys above insured value (scan drops price > insured).
-  // Override via env: CC_MARGIN_BANDS="50:0,75:0.03,100:0.05,200:0.10,350:0.15"
+  // Override via env: CC_MARGIN_BANDS="50:0,75:0.03,100:0.075,200:0.10,350:0.15"
   marginBands: bands("CC_MARGIN_BANDS", [
     { maxPriceUsd: 50, minMargin: 0 },
     { maxPriceUsd: 75, minMargin: 0.03 },
-    { maxPriceUsd: 100, minMargin: 0.05 },
+    { maxPriceUsd: 100, minMargin: 0.075 },
     { maxPriceUsd: 200, minMargin: 0.1 },
     { maxPriceUsd: 350, minMargin: 0.15 },
   ]),
