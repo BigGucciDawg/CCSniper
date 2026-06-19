@@ -79,8 +79,8 @@ export const config = {
   ]),
   // One Piece is bought to build supply for the new game mode: flat min discount,
   // its own price ceiling, and (see forwardCategories) kept in the burner.
-  onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.125),
-  onePieceMaxPriceUsd: num("CC_ONEPIECE_MAX_PRICE_USD", 100),
+  onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.15),
+  onePieceMaxPriceUsd: num("CC_ONEPIECE_MAX_PRICE_USD", 200),
   // categories whose cards are forwarded to destWallet after purchase. Anything
   // not listed here is KEPT in the burner (e.g. One Piece supply).
   forwardCategories: list("CC_FORWARD_CATEGORIES", ["Pokemon"]),
