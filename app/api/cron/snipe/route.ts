@@ -35,17 +35,17 @@ async function alert(text: string) {
   }
 }
 
-// required discount (%) for a card, by category. One Piece uses a flat floor
-// (supply-building); other categories use the price-band schedule. Returns
-// Infinity for prices above the top band so they're always excluded.
+// required discount (%) for a card, by category. Returns Infinity when the card
+// is outside that category's price window, so it's always excluded.
+//  - One Piece (supply build): any price up to onePieceMaxPriceUsd, flat floor.
+//  - Pokemon (we hold plenty): only "expensive" cards (>= pokemonMinPriceUsd),
+//    flat "really good" floor.
 function requiredMarginPct(category: string | null, priceUsd: number): number {
   if (category === "One Piece") {
     return priceUsd <= config.onePieceMaxPriceUsd ? config.onePieceMinMargin * 100 : Infinity;
   }
-  for (const b of config.marginBands) {
-    if (priceUsd <= b.maxPriceUsd) return b.minMargin * 100;
-  }
-  return Infinity;
+  // Pokemon / default
+  return priceUsd >= config.pokemonMinPriceUsd ? config.pokemonMinMargin * 100 : Infinity;
 }
 
 // candidates that pass the BUYER's (stricter) gates, best discount first

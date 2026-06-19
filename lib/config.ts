@@ -19,29 +19,11 @@ function bool(name: string, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(v.trim().toLowerCase());
 }
 
-export interface MarginBand {
-  maxPriceUsd: number; // applies to cards priced at or below this
-  minMargin: number; // required discount to insured value (0.05 = 5%)
-}
-
-// Parse "75:0.05,200:0.10,350:0.15" -> sorted bands. Each pair is price:margin.
-function bands(name: string, fallback: MarginBand[]): MarginBand[] {
-  const v = process.env[name];
-  if (!v) return fallback;
-  const parsed: MarginBand[] = [];
-  for (const pair of v.split(",")) {
-    const [p, m] = pair.split(":").map((s) => Number(s.trim()));
-    if (Number.isFinite(p) && Number.isFinite(m)) parsed.push({ maxPriceUsd: p, minMargin: m });
-  }
-  parsed.sort((a, b) => a.maxPriceUsd - b.maxPriceUsd);
-  return parsed.length ? parsed : fallback;
-}
-
 export const config = {
   apiBase: process.env.CC_API_BASE || "https://api.collectorcrypt.com",
 
   // never consider a card priced above this (USD) — also caps the listing query.
-  // keep >= the largest margin band's maxPriceUsd.
+  // this is the effective Pokemon upper price bound (One Piece has its own cap).
   maxSpendUsd: num("CC_MAX_SPEND_USD", 350),
   // require price <= insured * (1 - minMargin). 0 = any discount below insured.
   // raise to ~0.12-0.15 before going live so 2% fee + gas don't eat the edge.
@@ -64,22 +46,15 @@ export const config = {
   // MASTER SWITCH: nothing is ever bought unless this is explicitly true.
   // Default false => dry-run (logs what it WOULD buy, spends nothing).
   botLive: bool("CC_BOT_LIVE", false),
-  // Required discount by price band: the first band whose maxPriceUsd >= the
-  // card's price applies. Cards priced above the largest band are never bought,
-  // so the top band's maxPriceUsd is the effective hard spend ceiling.
-  //   <= $50 -> 0%, <= $75 -> 3%, <= $100 -> 7.5%, <= $200 -> 10%, <= $350 -> 15%.
-  // 0% still never buys above insured value (scan drops price > insured).
-  // Override via env: CC_MARGIN_BANDS="50:0,75:0.03,100:0.075,200:0.10,350:0.15"
-  marginBands: bands("CC_MARGIN_BANDS", [
-    { maxPriceUsd: 50, minMargin: 0 },
-    { maxPriceUsd: 75, minMargin: 0.03 },
-    { maxPriceUsd: 100, minMargin: 0.075 },
-    { maxPriceUsd: 200, minMargin: 0.1 },
-    { maxPriceUsd: 350, minMargin: 0.15 },
-  ]),
+  // Pokemon: we already hold plenty, so only buy "expensive + really good
+  // discount" — price at or above pokemonMinPriceUsd AND discount at or above
+  // pokemonMinMargin. (Upper price bound is maxSpendUsd; scan never returns
+  // price > insured, so we never buy above insured value.)
+  pokemonMinPriceUsd: num("CC_POKEMON_MIN_PRICE_USD", 100),
+  pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0.15),
   // One Piece is bought to build supply for the new game mode: flat min discount,
   // its own price ceiling, and (see forwardCategories) kept in the burner.
-  onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.15),
+  onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.1),
   onePieceMaxPriceUsd: num("CC_ONEPIECE_MAX_PRICE_USD", 200),
   // categories whose cards are forwarded to destWallet after purchase. Anything
   // not listed here is KEPT in the burner (e.g. One Piece supply).
