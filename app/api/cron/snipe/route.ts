@@ -35,14 +35,17 @@ async function alert(text: string) {
   }
 }
 
-// Pokemon discount requirement, scaled by treasury inventory: full picky floor
-// when the treasury is healthy, ramping down to the aggressive floor as it
-// approaches treasuryFloor — so we buy more readily to keep it topped up.
+// Pokemon discount requirement, gated + scaled by treasury inventory:
+//  - count >= treasuryBuyBelow  -> Infinity (do NOT buy Pokemon; we have plenty)
+//  - count <= treasuryFloor     -> aggressive floor (buy readily to refill)
+//  - in between                 -> linear ramp pokemonMinMargin..floor
+// treasuryCount == null (couldn't read) -> Infinity: don't buy Pokemon unless we
+// can confirm the treasury is below the threshold (One Piece is unaffected).
 function pokemonMargin(treasuryCount: number | null): number {
-  const { treasuryTarget, treasuryFloor, pokemonMinMargin, pokemonMinMarginFloor } = config;
-  if (treasuryCount == null || treasuryCount >= treasuryTarget) return pokemonMinMargin;
+  const { treasuryBuyBelow, treasuryFloor, pokemonMinMargin, pokemonMinMarginFloor } = config;
+  if (treasuryCount == null || treasuryCount >= treasuryBuyBelow) return Infinity;
   if (treasuryCount <= treasuryFloor) return pokemonMinMarginFloor;
-  const t = (treasuryCount - treasuryFloor) / (treasuryTarget - treasuryFloor);
+  const t = (treasuryCount - treasuryFloor) / (treasuryBuyBelow - treasuryFloor);
   return pokemonMinMarginFloor + t * (pokemonMinMargin - pokemonMinMarginFloor);
 }
 
@@ -79,14 +82,15 @@ export async function GET(req: NextRequest) {
   try {
     const result = await sweep();
 
-    // Read treasury inventory to scale the Pokemon discount (replenishment).
-    // Best-effort: if we can't read it, fall back to the normal picky floor.
+    // Read treasury inventory to gate + scale Pokemon buying (replenishment).
+    // If we can't read it, treasuryCount stays null -> Pokemon buying pauses
+    // (we won't buy unless we can confirm the treasury is below the threshold).
     let treasuryCount: number | null = null;
     if (config.destWallet) {
       try {
         treasuryCount = await countNfts(getConnection(), config.destWallet);
       } catch {
-        /* keep null -> normal margin */
+        /* keep null -> Pokemon buying off this run */
       }
     }
     const pkMargin = pokemonMargin(treasuryCount);
@@ -100,7 +104,8 @@ export async function GET(req: NextRequest) {
         startedAt,
         scanned: result.scanned,
         treasuryCount,
-        pokemonMarginPct: Math.round(pkMargin * 1000) / 10,
+        pokemonBuyingActive: Number.isFinite(pkMargin),
+        pokemonMarginPct: Number.isFinite(pkMargin) ? Math.round(pkMargin * 1000) / 10 : null,
         belowInsured: result.candidates.length,
         eligible: picks.length,
         wouldBuy: picks.slice(0, config.maxBuysPerRun).map((c) => ({

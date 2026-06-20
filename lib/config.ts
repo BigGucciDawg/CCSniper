@@ -52,12 +52,16 @@ export const config = {
   // price > insured, so we never buy above insured value.)
   pokemonMinPriceUsd: num("CC_POKEMON_MIN_PRICE_USD", 100),
   pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0.15),
-  // Treasury replenishment: as the destination (treasury) card count falls
-  // toward the floor, lower the Pokemon discount we require so we buy more
-  // aggressively and keep the treasury topped up. Linear ramp between the two.
-  //   count >= treasuryTarget -> require pokemonMinMargin (normal, picky)
-  //   count <= treasuryFloor  -> require pokemonMinMarginFloor (aggressive)
-  treasuryTarget: num("CC_TREASURY_TARGET", 150),
+  // Treasury replenishment. Pokemon are bought ONLY when the destination
+  // (treasury) card count is BELOW treasuryBuyBelow — otherwise we hold off
+  // entirely (we have plenty). Once below it, the required discount ramps from
+  // pokemonMinMargin (just under the threshold, picky) down to
+  // pokemonMinMarginFloor (at/below treasuryFloor, aggressive) so we refill
+  // faster the lower it gets.
+  //   count >= treasuryBuyBelow -> DO NOT buy Pokemon
+  //   treasuryFloor < count < treasuryBuyBelow -> ramp pokemonMinMargin..floor
+  //   count <= treasuryFloor -> require pokemonMinMarginFloor (most aggressive)
+  treasuryBuyBelow: num("CC_TREASURY_BUY_BELOW", 120),
   treasuryFloor: num("CC_TREASURY_FLOOR", 60),
   pokemonMinMarginFloor: num("CC_POKEMON_MIN_MARGIN_FLOOR", 0),
   // never buy these mints (e.g. bogus insured value). CC_BLACKLIST appends more.
