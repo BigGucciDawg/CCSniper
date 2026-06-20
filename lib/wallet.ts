@@ -50,6 +50,19 @@ export async function confirmSignature(
   return false;
 }
 
+const TOKEN_PROGRAM = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+// Count NFTs (amount 1, decimals 0) held by a wallet — used to read the
+// treasury's current card inventory for the replenishment ramp.
+export async function countNfts(conn: Connection, owner: string): Promise<number> {
+  const res = await conn.getParsedTokenAccountsByOwner(new PublicKey(owner), {
+    programId: TOKEN_PROGRAM,
+  });
+  return res.value
+    .map((a) => a.account.data.parsed.info)
+    .filter((i: any) => i.tokenAmount?.decimals === 0 && i.tokenAmount?.uiAmount === 1).length;
+}
+
 export interface Balances {
   sol: number; // in SOL
   usdc: number; // in USDC

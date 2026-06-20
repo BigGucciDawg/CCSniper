@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sweep, type Candidate } from "@/lib/scan";
 import { config } from "@/lib/config";
-import { getKeypair, getConnection, getBalances } from "@/lib/wallet";
+import { getKeypair, getConnection, getBalances, countNfts } from "@/lib/wallet";
 import { executeBuy } from "@/lib/buy";
 // NOTE: forwarding to the treasury is handled by a separate cron (/api/sweep)
 // so a slow confirm+transfer can never eat into the buy path's 60s budget.
@@ -35,25 +35,37 @@ async function alert(text: string) {
   }
 }
 
+// Pokemon discount requirement, scaled by treasury inventory: full picky floor
+// when the treasury is healthy, ramping down to the aggressive floor as it
+// approaches treasuryFloor — so we buy more readily to keep it topped up.
+function pokemonMargin(treasuryCount: number | null): number {
+  const { treasuryTarget, treasuryFloor, pokemonMinMargin, pokemonMinMarginFloor } = config;
+  if (treasuryCount == null || treasuryCount >= treasuryTarget) return pokemonMinMargin;
+  if (treasuryCount <= treasuryFloor) return pokemonMinMarginFloor;
+  const t = (treasuryCount - treasuryFloor) / (treasuryTarget - treasuryFloor);
+  return pokemonMinMarginFloor + t * (pokemonMinMargin - pokemonMinMarginFloor);
+}
+
 // required discount (%) for a card, by category. Returns Infinity when the card
 // is outside that category's price window, so it's always excluded.
 //  - One Piece (supply build): any price up to onePieceMaxPriceUsd, flat floor.
 //  - Pokemon (we hold plenty): only "expensive" cards (>= pokemonMinPriceUsd),
-//    flat "really good" floor.
-function requiredMarginPct(category: string | null, priceUsd: number): number {
+//    floor scaled by treasury inventory (pkMargin).
+function requiredMarginPct(category: string | null, priceUsd: number, pkMargin: number): number {
   if (category === "One Piece") {
     return priceUsd <= config.onePieceMaxPriceUsd ? config.onePieceMinMargin * 100 : Infinity;
   }
   // Pokemon / default
-  return priceUsd >= config.pokemonMinPriceUsd ? config.pokemonMinMargin * 100 : Infinity;
+  return priceUsd >= config.pokemonMinPriceUsd ? pkMargin * 100 : Infinity;
 }
 
 // candidates that pass the BUYER's (stricter) gates, best discount first
-function eligible(cands: Candidate[]): Candidate[] {
+function eligible(cands: Candidate[], pkMargin: number): Candidate[] {
   return cands
+    .filter((c) => !config.blacklist.includes(c.nftAddress)) // bogus-insured / banned mints
     .filter((c) => c.currency && config.buyCurrencies.includes(c.currency))
     .filter((c) => c.type && config.buyTypes.includes(c.type)) // cards only, no sealed
-    .filter((c) => c.spreadPct >= requiredMarginPct(c.category, c.priceUsd))
+    .filter((c) => c.spreadPct >= requiredMarginPct(c.category, c.priceUsd, pkMargin))
     .filter((c) => !recentlyAttempted.has(c.nftAddress))
     .sort((a, b) => b.spreadPct - a.spreadPct || b.spreadUsd - a.spreadUsd);
 }
@@ -66,7 +78,19 @@ export async function GET(req: NextRequest) {
   const startedAt = new Date().toISOString();
   try {
     const result = await sweep();
-    const picks = eligible(result.candidates);
+
+    // Read treasury inventory to scale the Pokemon discount (replenishment).
+    // Best-effort: if we can't read it, fall back to the normal picky floor.
+    let treasuryCount: number | null = null;
+    if (config.destWallet) {
+      try {
+        treasuryCount = await countNfts(getConnection(), config.destWallet);
+      } catch {
+        /* keep null -> normal margin */
+      }
+    }
+    const pkMargin = pokemonMargin(treasuryCount);
+    const picks = eligible(result.candidates, pkMargin);
 
     // ---- DRY RUN: never spends. Shows exactly what it would buy. ----
     if (!config.botLive) {
@@ -75,6 +99,8 @@ export async function GET(req: NextRequest) {
         mode: "DRY_RUN",
         startedAt,
         scanned: result.scanned,
+        treasuryCount,
+        pokemonMarginPct: Math.round(pkMargin * 1000) / 10,
         belowInsured: result.candidates.length,
         eligible: picks.length,
         wouldBuy: picks.slice(0, config.maxBuysPerRun).map((c) => ({
@@ -135,6 +161,8 @@ export async function GET(req: NextRequest) {
       mode: "LIVE",
       startedAt,
       finishedAt: new Date().toISOString(),
+      treasuryCount,
+      pokemonMarginPct: Math.round(pkMargin * 1000) / 10,
       eligible: picks.length,
       bought,
     });

@@ -52,6 +52,19 @@ export const config = {
   // price > insured, so we never buy above insured value.)
   pokemonMinPriceUsd: num("CC_POKEMON_MIN_PRICE_USD", 100),
   pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0.15),
+  // Treasury replenishment: as the destination (treasury) card count falls
+  // toward the floor, lower the Pokemon discount we require so we buy more
+  // aggressively and keep the treasury topped up. Linear ramp between the two.
+  //   count >= treasuryTarget -> require pokemonMinMargin (normal, picky)
+  //   count <= treasuryFloor  -> require pokemonMinMarginFloor (aggressive)
+  treasuryTarget: num("CC_TREASURY_TARGET", 150),
+  treasuryFloor: num("CC_TREASURY_FLOOR", 60),
+  pokemonMinMarginFloor: num("CC_POKEMON_MIN_MARGIN_FLOOR", 0),
+  // never buy these mints (e.g. bogus insured value). CC_BLACKLIST appends more.
+  blacklist: [
+    "ghSZnm9k1VQtw9JCdwnYH5My587ePsPextg6JfZ7zKf", // Squirtle CGC 10 - fake $866 insured
+    ...list("CC_BLACKLIST", []),
+  ],
   // One Piece is bought to build supply for the new game mode: flat min discount,
   // its own price ceiling, and (see forwardCategories) kept in the burner.
   onePieceMinMargin: num("CC_ONEPIECE_MIN_MARGIN", 0.1),
