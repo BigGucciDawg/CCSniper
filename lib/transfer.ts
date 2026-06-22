@@ -1,9 +1,19 @@
 // Forward a bought NFT from the burner to the destination wallet.
-// Collector Crypt cards are programmable NFTs (pNFTs, tokenStandard 4), which
-// are frozen — a plain SPL transfer fails. We use Metaplex transferV1, which
-// handles token records and (re)creating the destination token account. The
-// tokenStandard and any authorization rule set are read from the asset itself,
-// so this also works for regular NFTs.
+//
+// Collector Crypt mints in TWO on-chain standards and we must handle both:
+//   - OLDER slabs are programmable NFTs (pNFTs, tokenStandard 4) — frozen, so a
+//     plain SPL transfer fails. Metaplex Token Metadata `transferV1` handles
+//     token records + (re)creating the destination token account, reading the
+//     tokenStandard + rule set from the asset (works for regular NFTs too).
+//   - NEWER slabs are Metaplex Core (`MplCoreAsset`) — single-account assets
+//     with NO token account and NO Token Metadata PDA, transferred via the
+//     mpl-core program's own `transferV1` (asset + optional collection +
+//     newOwner). `fetchDigitalAsset` THROWS on these, so the old pNFT-only
+//     forwarder left every Core slab stuck in the burner.
+//
+// We detect the standard first (mpl-core `fetchAsset` only deserializes Core
+// assets) and route to the matching transfer — mirrors the gym treasury's
+// dual-path nftTransfer.ts.
 
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import {
@@ -18,16 +28,28 @@ import {
   TokenStandard,
   mplTokenMetadata,
 } from "@metaplex-foundation/mpl-token-metadata";
+import {
+  mplCore,
+  fetchAsset,
+  transferV1 as coreTransferV1,
+  collectionAddress,
+  type AssetV1,
+} from "@metaplex-foundation/mpl-core";
 import { mplToolbox } from "@metaplex-foundation/mpl-toolbox";
 import type { Keypair } from "@solana/web3.js";
 
 function makeUmi(burner: Keypair) {
   const rpc = (process.env.CC_SNIPER_RPC_URL || "").trim().replace(/^['"]|['"]$/g, "");
   const url = /^https?:\/\//i.test(rpc) ? rpc : `https://${rpc}`;
-  const umi = createUmi(url).use(mplTokenMetadata()).use(mplToolbox());
+  const umi = createUmi(url).use(mplTokenMetadata()).use(mplToolbox()).use(mplCore());
   const kp = umi.eddsa.createKeypairFromSecretKey(burner.secretKey);
   umi.use(signerIdentity(createSignerFromKeypair(umi, kp)));
   return umi;
+}
+
+async function encodeSig(signature: Uint8Array): Promise<string> {
+  const { base58 } = await import("@metaplex-foundation/umi/serializers");
+  return base58.deserialize(signature)[0];
 }
 
 // Transfers `mint` from the burner (umi identity) to `destOwner`. Returns the
@@ -39,7 +61,33 @@ export async function forwardNft(
 ): Promise<string> {
   const umi = makeUmi(burner);
   const mintPk = publicKey(mint);
+  const dest = publicKey(destOwner);
 
+  // Detect Metaplex Core first — `fetchAsset` deserializes ONLY Core assets, so
+  // success here means it's a Core slab (a pNFT/NFT throws and falls through).
+  let coreAsset: AssetV1 | undefined;
+  try {
+    coreAsset = await fetchAsset(umi, mintPk);
+  } catch {
+    coreAsset = undefined; // not a Core asset → Token Metadata path below
+  }
+
+  // ---- Metaplex Core transfer (CC's newer slabs) ----
+  if (coreAsset) {
+    // Pass the collection (if any) so the program's royalty/plugin lifecycle
+    // checks run; authority + payer default to the umi identity (the burner).
+    const res = await coreTransferV1(umi, {
+      asset: mintPk,
+      collection: collectionAddress(coreAsset),
+      newOwner: dest,
+    }).sendAndConfirm(umi, {
+      confirm: { commitment: "confirmed" },
+      send: { skipPreflight: false },
+    });
+    return encodeSig(res.signature);
+  }
+
+  // ---- Token Metadata (pNFT / NFT) transfer (CC's older slabs) ----
   // read the asset to get its token standard + any programmable rule set
   const asset = await fetchDigitalAsset(umi, mintPk);
   const tokenStandard = asset.metadata.tokenStandard;
@@ -57,7 +105,7 @@ export async function forwardNft(
     mint: mintPk,
     authority: umi.identity,
     tokenOwner: umi.identity.publicKey,
-    destinationOwner: publicKey(destOwner),
+    destinationOwner: dest,
     tokenStandard: std,
     authorizationRules,
   });
@@ -67,7 +115,5 @@ export async function forwardNft(
     send: { skipPreflight: false },
   });
 
-  // umi returns the signature as bytes; encode to base58
-  const { base58 } = await import("@metaplex-foundation/umi/serializers");
-  return base58.deserialize(res.signature)[0];
+  return encodeSig(res.signature);
 }

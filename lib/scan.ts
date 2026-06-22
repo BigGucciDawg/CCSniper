@@ -10,6 +10,7 @@ export interface Candidate {
   category: string | null;
   type: string | null; // "Card" | "Sealed" | ...
   itemName: string;
+  year: number | null;
   grade: string | null;
   gradingCompany: string | null;
   currency: string | null;
@@ -100,6 +101,7 @@ function evaluate(card: any, solUsd: number): Candidate | null {
     category,
     type: card?.type ?? null,
     itemName: String(card?.itemName ?? "").slice(0, 200),
+    year: Number.isFinite(Number(card?.year)) ? Number(card?.year) : null,
     grade: card?.grade ?? null,
     gradingCompany: card?.gradingCompany ?? null,
     currency,

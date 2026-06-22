@@ -3,6 +3,8 @@ import { sweep, type Candidate } from "@/lib/scan";
 import { config } from "@/lib/config";
 import { getKeypair, getConnection, getBalances, countNfts } from "@/lib/wallet";
 import { executeBuy } from "@/lib/buy";
+import { fetchHeldCardKeys } from "@/lib/owned";
+import { cardKey, listingNameCore } from "@/lib/dedupe";
 // NOTE: forwarding to the treasury is handled by a separate cron (/api/sweep)
 // so a slow confirm+transfer can never eat into the buy path's 60s budget.
 
@@ -62,6 +64,18 @@ function requiredMarginPct(category: string | null, priceUsd: number, pkMargin: 
   return priceUsd >= config.pokemonMinPriceUsd ? pkMargin * 100 : Infinity;
 }
 
+// Categories the dedupe applies to (falls back to forwarded categories).
+const dedupeCats = (config.dedupeCategories.length ? config.dedupeCategories : config.forwardCategories);
+// Grade-agnostic card identity for a listing: name(parsed from itemName)+year.
+const candidateKey = (c: Candidate) => cardKey(listingNameCore(c.itemName), c.year);
+// A candidate is a duplicate if it's in a deduped category AND we already hold
+// that card. `held` null = dedupe unavailable this run → never treat as dup.
+function isDuplicate(c: Candidate, held: Set<string> | null): boolean {
+  if (held == null) return false;
+  if (!dedupeCats.includes(c.category ?? "")) return false;
+  return held.has(candidateKey(c));
+}
+
 // candidates that pass the BUYER's (stricter) gates, best discount first
 function eligible(cands: Candidate[], pkMargin: number): Candidate[] {
   return cands
@@ -94,7 +108,27 @@ export async function GET(req: NextRequest) {
       }
     }
     const pkMargin = pokemonMargin(treasuryCount);
-    const picks = eligible(result.candidates, pkMargin);
+
+    // Dedupe: drop candidates for cards we already hold (treasury + burner).
+    // `heldKeys` null = dedupe unavailable (disabled or DAS down) → buy as usual
+    // rather than halt. Burner is included so a just-bought card (not yet
+    // forwarded) blocks re-buying the same card on the next run.
+    let heldKeys: Set<string> | null = null;
+    if (config.skipDuplicates) {
+      const owners: string[] = [];
+      if (config.destWallet) owners.push(config.destWallet);
+      try {
+        owners.push(getKeypair().publicKey.toBase58());
+      } catch {
+        /* no burner secret (e.g. local dry-run) — dedupe vs treasury only */
+      }
+      if (owners.length) heldKeys = await fetchHeldCardKeys(owners, dedupeCats);
+    }
+
+    const eligibleAll = eligible(result.candidates, pkMargin);
+    const picks = eligibleAll.filter((c) => !isDuplicate(c, heldKeys));
+    const dedupedOut = eligibleAll.length - picks.length;
+    const dedupeActive = config.skipDuplicates && heldKeys != null;
 
     // ---- DRY RUN: never spends. Shows exactly what it would buy. ----
     if (!config.botLive) {
@@ -107,6 +141,9 @@ export async function GET(req: NextRequest) {
         pokemonBuyingActive: Number.isFinite(pkMargin),
         pokemonMarginPct: Number.isFinite(pkMargin) ? Math.round(pkMargin * 1000) / 10 : null,
         belowInsured: result.candidates.length,
+        dedupeActive,
+        heldCards: heldKeys?.size ?? null,
+        skippedDuplicates: dedupedOut,
         eligible: picks.length,
         wouldBuy: picks.slice(0, config.maxBuysPerRun).map((c) => ({
           item: c.itemName,
@@ -122,7 +159,15 @@ export async function GET(req: NextRequest) {
 
     // ---- LIVE ----
     if (picks.length === 0) {
-      return NextResponse.json({ ok: true, mode: "LIVE", startedAt, eligible: 0, bought: [] });
+      return NextResponse.json({
+        ok: true,
+        mode: "LIVE",
+        startedAt,
+        eligible: 0,
+        dedupeActive,
+        skippedDuplicates: dedupedOut,
+        bought: [],
+      });
     }
 
     const kp = getKeypair();
@@ -138,17 +183,24 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: true, mode: "LIVE", startedAt, note: "SOL too low for gas", bought: [] });
     }
     let remainingUsdc = bal.usdc;
+    // Keys bought THIS run — stops a multi-buy run from grabbing two listings of
+    // the same card before either has landed in the held set.
+    const boughtKeys = new Set<string>();
 
     for (const c of picks) {
       if (bought.length >= config.maxBuysPerRun) break;
       // skip picks we can't afford and fall through to the next-biggest discount,
       // rather than stalling on an unaffordable top pick
       if (remainingUsdc < c.priceUsd) continue;
+      // skip a card we already bought earlier in this same run
+      const key = candidateKey(c);
+      if (config.skipDuplicates && dedupeCats.includes(c.category ?? "") && boughtKeys.has(key)) continue;
 
       recentlyAttempted.add(c.nftAddress);
       try {
         const res = await executeBuy(kp, c);
         remainingUsdc -= c.priceUsd;
+        boughtKeys.add(key);
         const line = `✅ cc-sniper BOUGHT ${c.itemName} for $${c.priceUsd} (insured $${c.insuredUsd}, -${c.spreadPct}%) sig=${res.signature ?? "?"}`;
         await alert(line);
         // bought NFT lands in the burner; the /api/sweep cron forwards it to
@@ -168,6 +220,9 @@ export async function GET(req: NextRequest) {
       finishedAt: new Date().toISOString(),
       treasuryCount,
       pokemonMarginPct: Math.round(pkMargin * 1000) / 10,
+      dedupeActive,
+      heldCards: heldKeys?.size ?? null,
+      skippedDuplicates: dedupedOut,
       eligible: picks.length,
       bought,
     });

@@ -76,6 +76,14 @@ export const config = {
   // categories whose cards are forwarded to destWallet after purchase. Anything
   // not listed here is KEPT in the burner (e.g. One Piece supply).
   forwardCategories: list("CC_FORWARD_CATEGORIES", ["Pokemon"]),
+  // Don't buy a card we already hold (treasury + burner). Judged by card
+  // identity (name+year), grade-agnostic — one copy of a card is enough.
+  skipDuplicates: bool("CC_SKIP_DUPLICATES", true),
+  // categories the dedupe applies to. Defaults to the forwarded (treasury game
+  // inventory) categories; categories accumulated as SUPPLY (One Piece) are
+  // intentionally NOT deduped, so we keep buying their copies. Falls back to
+  // forwardCategories when the env is unset.
+  dedupeCategories: list("CC_DEDUPE_CATEGORIES", ["Pokemon"]),
   // only buy listings in these currencies (we hold/pay these). USDC only for v1.
   buyCurrencies: list("CC_BUY_CURRENCIES", ["USDC"]),
   // only buy these item types. "Card" = graded singles; excludes "Sealed"
