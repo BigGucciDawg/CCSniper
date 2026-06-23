@@ -30,8 +30,10 @@ export const config = {
   minMargin: num("CC_MIN_MARGIN", 0),
   // ignore dust / placeholder insured values
   minInsuredUsd: num("CC_MIN_INSURED_USD", 1),
-  // only these categories are scanned (server-side filter + client guard)
-  categories: list("CC_CATEGORIES", ["Pokemon", "One Piece"]),
+  // only these categories are scanned/bought (server-side filter + client guard).
+  // One Piece paused for now (focus on Pokemon); held One Piece stay in burner.
+  // Re-add "One Piece" here (or via CC_CATEGORIES) to resume building that supply.
+  categories: list("CC_CATEGORIES", ["Pokemon"]),
 
   // pagination
   pageStep: num("CC_PAGE_STEP", 100),
@@ -52,16 +54,12 @@ export const config = {
   // price > insured, so we never buy above insured value.)
   pokemonMinPriceUsd: num("CC_POKEMON_MIN_PRICE_USD", 100),
   pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0.15),
-  // Treasury replenishment. Pokemon are bought ONLY when the destination
-  // (treasury) card count is BELOW treasuryBuyBelow — otherwise we hold off
-  // entirely (we have plenty). Once below it, the required discount ramps from
-  // pokemonMinMargin (just under the threshold, picky) down to
-  // pokemonMinMarginFloor (at/below treasuryFloor, aggressive) so we refill
-  // faster the lower it gets.
-  //   count >= treasuryBuyBelow -> DO NOT buy Pokemon
-  //   treasuryFloor < count < treasuryBuyBelow -> ramp pokemonMinMargin..floor
+  // Treasury replenishment ramp: as the destination (treasury) card count falls
+  // toward the floor, lower the required Pokemon discount so we refill faster.
+  //   count >= treasuryTarget -> require pokemonMinMargin (normal, picky)
+  //   treasuryFloor < count < treasuryTarget -> ramp pokemonMinMargin..floor
   //   count <= treasuryFloor -> require pokemonMinMarginFloor (most aggressive)
-  treasuryBuyBelow: num("CC_TREASURY_BUY_BELOW", 120),
+  treasuryTarget: num("CC_TREASURY_TARGET", 120),
   treasuryFloor: num("CC_TREASURY_FLOOR", 60),
   pokemonMinMarginFloor: num("CC_POKEMON_MIN_MARGIN_FLOOR", 0),
   // never buy these mints (e.g. bogus insured value). CC_BLACKLIST appends more.
