@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sweep, type Candidate } from "@/lib/scan";
 import { config } from "@/lib/config";
-import { getKeypair, getConnection, getBalances, countNfts } from "@/lib/wallet";
+import { getKeypair, getConnection, getBalances } from "@/lib/wallet";
 import { executeBuy } from "@/lib/buy";
 import { fetchHeldCardKeys } from "@/lib/owned";
 import { cardKey, listingNameCore } from "@/lib/dedupe";
@@ -37,29 +37,23 @@ async function alert(text: string) {
   }
 }
 
-// Pokemon discount requirement, scaled by treasury inventory: normal picky floor
-// when the treasury is healthy, ramping down to the aggressive floor as it
-// approaches treasuryFloor — so we buy more readily to keep it topped up.
-// treasuryCount == null (couldn't read) -> normal margin (still buys Pokemon).
-function pokemonMargin(treasuryCount: number | null): number {
-  const { treasuryTarget, treasuryFloor, pokemonMinMargin, pokemonMinMarginFloor } = config;
-  if (treasuryCount == null || treasuryCount >= treasuryTarget) return pokemonMinMargin;
-  if (treasuryCount <= treasuryFloor) return pokemonMinMarginFloor;
-  const t = (treasuryCount - treasuryFloor) / (treasuryTarget - treasuryFloor);
-  return pokemonMinMarginFloor + t * (pokemonMinMargin - pokemonMinMarginFloor);
-}
-
-// required discount (%) for a card, by category. Returns Infinity when the card
-// is outside that category's price window, so it's always excluded.
-//  - One Piece (supply build): any price up to onePieceMaxPriceUsd, flat floor.
-//  - Pokemon (we hold plenty): only "expensive" cards (>= pokemonMinPriceUsd),
-//    floor scaled by treasury inventory (pkMargin).
-function requiredMarginPct(category: string | null, priceUsd: number, pkMargin: number): number {
-  if (category === "One Piece") {
-    return priceUsd <= config.onePieceMaxPriceUsd ? config.onePieceMinMargin * 100 : Infinity;
+// Per-category buy gate. Returns true if the card clears that category's rules.
+//  - One Piece (paused; here for when re-enabled): price <= onePieceMaxPriceUsd
+//    and discount >= onePieceMinMargin.
+//  - Pokemon (focus): INSURED value below pokemonMaxInsuredUsd, and an actual
+//    discount — price strictly below insured (spreadPct > 0), with an optional
+//    extra floor pokemonMinMargin (default 0 = any discount). Never at/above
+//    insured value.
+function categoryEligible(c: Candidate): boolean {
+  if (c.category === "One Piece") {
+    return c.priceUsd <= config.onePieceMaxPriceUsd && c.spreadPct >= config.onePieceMinMargin * 100;
   }
   // Pokemon / default
-  return priceUsd >= config.pokemonMinPriceUsd ? pkMargin * 100 : Infinity;
+  return (
+    c.insuredUsd < config.pokemonMaxInsuredUsd &&
+    c.spreadPct > 0 &&
+    c.spreadPct >= config.pokemonMinMargin * 100
+  );
 }
 
 // Categories the dedupe applies to (falls back to forwarded categories).
@@ -75,12 +69,12 @@ function isDuplicate(c: Candidate, held: Set<string> | null): boolean {
 }
 
 // candidates that pass the BUYER's (stricter) gates, best discount first
-function eligible(cands: Candidate[], pkMargin: number): Candidate[] {
+function eligible(cands: Candidate[]): Candidate[] {
   return cands
     .filter((c) => !config.blacklist.includes(c.nftAddress)) // bogus-insured / banned mints
     .filter((c) => c.currency && config.buyCurrencies.includes(c.currency))
     .filter((c) => c.type && config.buyTypes.includes(c.type)) // cards only, no sealed
-    .filter((c) => c.spreadPct >= requiredMarginPct(c.category, c.priceUsd, pkMargin))
+    .filter((c) => categoryEligible(c))
     .filter((c) => !recentlyAttempted.has(c.nftAddress))
     .sort((a, b) => b.spreadPct - a.spreadPct || b.spreadUsd - a.spreadUsd);
 }
@@ -93,18 +87,6 @@ export async function GET(req: NextRequest) {
   const startedAt = new Date().toISOString();
   try {
     const result = await sweep();
-
-    // Read treasury inventory to scale the Pokemon discount (replenishment).
-    // Best-effort: if we can't read it, fall back to the normal picky floor.
-    let treasuryCount: number | null = null;
-    if (config.destWallet) {
-      try {
-        treasuryCount = await countNfts(getConnection(), config.destWallet);
-      } catch {
-        /* keep null -> normal margin */
-      }
-    }
-    const pkMargin = pokemonMargin(treasuryCount);
 
     // Dedupe: drop candidates for cards we already hold (treasury + burner).
     // `heldKeys` null = dedupe unavailable (disabled or DAS down) → buy as usual
@@ -122,7 +104,7 @@ export async function GET(req: NextRequest) {
       if (owners.length) heldKeys = await fetchHeldCardKeys(owners, dedupeCats);
     }
 
-    const eligibleAll = eligible(result.candidates, pkMargin);
+    const eligibleAll = eligible(result.candidates);
     const picks = eligibleAll.filter((c) => !isDuplicate(c, heldKeys));
     const dedupedOut = eligibleAll.length - picks.length;
     const dedupeActive = config.skipDuplicates && heldKeys != null;
@@ -134,9 +116,6 @@ export async function GET(req: NextRequest) {
         mode: "DRY_RUN",
         startedAt,
         scanned: result.scanned,
-        treasuryCount,
-        pokemonBuyingActive: Number.isFinite(pkMargin),
-        pokemonMarginPct: Number.isFinite(pkMargin) ? Math.round(pkMargin * 1000) / 10 : null,
         belowInsured: result.candidates.length,
         dedupeActive,
         heldCards: heldKeys?.size ?? null,
@@ -215,8 +194,6 @@ export async function GET(req: NextRequest) {
       mode: "LIVE",
       startedAt,
       finishedAt: new Date().toISOString(),
-      treasuryCount,
-      pokemonMarginPct: Math.round(pkMargin * 1000) / 10,
       dedupeActive,
       heldCards: heldKeys?.size ?? null,
       skippedDuplicates: dedupedOut,

@@ -48,20 +48,12 @@ export const config = {
   // MASTER SWITCH: nothing is ever bought unless this is explicitly true.
   // Default false => dry-run (logs what it WOULD buy, spends nothing).
   botLive: bool("CC_BOT_LIVE", false),
-  // Pokemon: we already hold plenty, so only buy "expensive + really good
-  // discount" — price at or above pokemonMinPriceUsd AND discount at or above
-  // pokemonMinMargin. (Upper price bound is maxSpendUsd; scan never returns
-  // price > insured, so we never buy above insured value.)
-  pokemonMinPriceUsd: num("CC_POKEMON_MIN_PRICE_USD", 100),
-  pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0.15),
-  // Treasury replenishment ramp: as the destination (treasury) card count falls
-  // toward the floor, lower the required Pokemon discount so we refill faster.
-  //   count >= treasuryTarget -> require pokemonMinMargin (normal, picky)
-  //   treasuryFloor < count < treasuryTarget -> ramp pokemonMinMargin..floor
-  //   count <= treasuryFloor -> require pokemonMinMarginFloor (most aggressive)
-  treasuryTarget: num("CC_TREASURY_TARGET", 120),
-  treasuryFloor: num("CC_TREASURY_FLOOR", 60),
-  pokemonMinMarginFloor: num("CC_POKEMON_MIN_MARGIN_FLOOR", 0),
+  // Pokemon: focus on low-value cards — only buy those with INSURED value below
+  // pokemonMaxInsuredUsd, and only when there's an actual discount (price strictly
+  // below insured). pokemonMinMargin is an optional extra discount floor;
+  // default 0 means "any discount" (just has to be below insured value).
+  pokemonMaxInsuredUsd: num("CC_POKEMON_MAX_INSURED_USD", 50),
+  pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0),
   // never buy these mints (e.g. bogus insured value). CC_BLACKLIST appends more.
   blacklist: [
     "ghSZnm9k1VQtw9JCdwnYH5My587ePsPextg6JfZ7zKf", // Squirtle CGC 10 - fake $866 insured
