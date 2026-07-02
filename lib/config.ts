@@ -52,7 +52,7 @@ export const config = {
   // pokemonMaxInsuredUsd, and only when there's an actual discount (price strictly
   // below insured). pokemonMinMargin is an optional extra discount floor;
   // default 0 means "any discount" (just has to be below insured value).
-  pokemonMaxInsuredUsd: num("CC_POKEMON_MAX_INSURED_USD", 50),
+  pokemonMaxInsuredUsd: num("CC_POKEMON_MAX_INSURED_USD", 100),
   pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0),
   // never buy these mints (e.g. bogus insured value). CC_BLACKLIST appends more.
   blacklist: [
