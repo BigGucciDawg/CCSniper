@@ -40,20 +40,20 @@ async function alert(text: string) {
 // Per-category buy gate. Returns true if the card clears that category's rules.
 //  - One Piece (paused; here for when re-enabled): price <= onePieceMaxPriceUsd
 //    and discount >= onePieceMinMargin.
-//  - Pokemon (focus): INSURED value below pokemonMaxInsuredUsd, and an actual
-//    discount — price strictly below insured (spreadPct > 0), with an optional
-//    extra floor pokemonMinMargin (default 0 = any discount). Never at/above
-//    insured value.
+//  - Pokemon (focus): INSURED value below pokemonMaxInsuredUsd, with a tiered
+//    minimum discount by insured value — >= tier requires the higher floor, below
+//    it the lower floor. Both floors are > 0, so we never buy at/above insured.
 function categoryEligible(c: Candidate): boolean {
   if (c.category === "One Piece") {
     return c.priceUsd <= config.onePieceMaxPriceUsd && c.spreadPct >= config.onePieceMinMargin * 100;
   }
   // Pokemon / default
-  return (
-    c.insuredUsd < config.pokemonMaxInsuredUsd &&
-    c.spreadPct > 0 &&
-    c.spreadPct >= config.pokemonMinMargin * 100
-  );
+  if (c.insuredUsd >= config.pokemonMaxInsuredUsd) return false;
+  const minMargin =
+    c.insuredUsd >= config.pokemonDiscountTierUsd
+      ? config.pokemonMinMarginHigh
+      : config.pokemonMinMarginLow;
+  return c.spreadPct >= minMargin * 100;
 }
 
 // Categories the dedupe applies to (falls back to forwarded categories).

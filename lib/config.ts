@@ -48,12 +48,15 @@ export const config = {
   // MASTER SWITCH: nothing is ever bought unless this is explicitly true.
   // Default false => dry-run (logs what it WOULD buy, spends nothing).
   botLive: bool("CC_BOT_LIVE", false),
-  // Pokemon: focus on low-value cards — only buy those with INSURED value below
-  // pokemonMaxInsuredUsd, and only when there's an actual discount (price strictly
-  // below insured). pokemonMinMargin is an optional extra discount floor;
-  // default 0 means "any discount" (just has to be below insured value).
-  pokemonMaxInsuredUsd: num("CC_POKEMON_MAX_INSURED_USD", 100),
-  pokemonMinMargin: num("CC_POKEMON_MIN_MARGIN", 0),
+  // Pokemon: only buy cards with INSURED value below pokemonMaxInsuredUsd, with a
+  // tiered minimum discount by insured value — pricier cards must be discounted
+  // more:
+  //   insured >= pokemonDiscountTierUsd -> require pokemonMinMarginHigh
+  //   insured <  pokemonDiscountTierUsd -> require pokemonMinMarginLow
+  pokemonMaxInsuredUsd: num("CC_POKEMON_MAX_INSURED_USD", 200),
+  pokemonDiscountTierUsd: num("CC_POKEMON_DISCOUNT_TIER_USD", 100),
+  pokemonMinMarginHigh: num("CC_POKEMON_MIN_MARGIN_HIGH", 0.1),
+  pokemonMinMarginLow: num("CC_POKEMON_MIN_MARGIN_LOW", 0.075),
   // never buy these mints (e.g. bogus insured value). CC_BLACKLIST appends more.
   blacklist: [
     "ghSZnm9k1VQtw9JCdwnYH5My587ePsPextg6JfZ7zKf", // Squirtle CGC 10 - fake $866 insured
