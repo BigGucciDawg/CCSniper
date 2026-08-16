@@ -31,11 +31,19 @@ async function alert(text: string) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ content: text, text }), // works for Discord & generic
+      // a hung webhook must never eat the 60s buy budget
+      signal: AbortSignal.timeout(5000),
     });
   } catch {
     /* alerting must never break the run */
   }
 }
+
+// The starved condition persists every minute until the wallet is funded, so
+// rate-limit it: an unfunded burner would otherwise emit ~1440 webhook messages
+// a day and drown the buy audit trail this webhook exists for.
+const STARVED_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
+let lastStarvedAlertAt = 0;
 
 // Per-category buy gate. Returns true if the card clears that category's rules.
 //  - One Piece (paused; here for when re-enabled): price <= onePieceMaxPriceUsd
@@ -204,7 +212,8 @@ export async function GET(req: NextRequest) {
     // so this can't rot silently (no-op until CC_ALERT_WEBHOOK is set).
     const cheapestEligibleUsd = picks.length ? Math.min(...picks.map((p) => p.priceUsd)) : null;
     const starved = bought.length === 0 && unaffordable > 0;
-    if (starved) {
+    if (starved && Date.now() - lastStarvedAlertAt > STARVED_ALERT_COOLDOWN_MS) {
+      lastStarvedAlertAt = Date.now();
       await alert(
         `⛔ cc-sniper STARVED: ${unaffordable} eligible pick(s) all unaffordable. ` +
           `USDC=${bal.usdc.toFixed(2)}, cheapest eligible=$${cheapestEligibleUsd}. Fund the burner.`
