@@ -138,6 +138,7 @@ export async function GET(req: NextRequest) {
 
     // ---- LIVE ----
     if (picks.length === 0) {
+      console.log("cc-sniper run", JSON.stringify({ mode: "LIVE", eligible: 0, skippedDuplicates: dedupedOut, bought: 0 }));
       return NextResponse.json({
         ok: true,
         mode: "LIVE",
@@ -209,6 +210,22 @@ export async function GET(req: NextRequest) {
           `USDC=${bal.usdc.toFixed(2)}, cheapest eligible=$${cheapestEligibleUsd}. Fund the burner.`
       );
     }
+
+    // One compact line per run so the Vercel log alone answers "is it on, and
+    // why did it not buy?" without needing the CRON_SECRET to call the route.
+    console.log(
+      "cc-sniper run",
+      JSON.stringify({
+        mode: "LIVE",
+        eligible: picks.length,
+        unaffordable,
+        starved,
+        usdcBalance: Math.round(bal.usdc * 100) / 100,
+        cheapestEligibleUsd,
+        skippedDuplicates: dedupedOut,
+        bought: bought.length,
+      })
+    );
 
     return NextResponse.json({
       ok: true,
