@@ -43,6 +43,9 @@ async function alert(text: string) {
 //  - Pokemon (focus): INSURED value below pokemonMaxInsuredUsd, with a tiered
 //    minimum discount by insured value — >= tier requires the higher floor, below
 //    it the lower floor. Both floors are > 0, so we never buy at/above insured.
+//    As of 2026-08-16 the cap is $100 (== the tier), so the high branch never
+//    fires and the effective floor is pokemonMinMarginLow (7.5%); eligible cards
+//    are then bought biggest-discount-first.
 function categoryEligible(c: Candidate): boolean {
   if (c.category === "One Piece") {
     return c.priceUsd <= config.onePieceMaxPriceUsd && c.spreadPct >= config.onePieceMinMargin * 100;
@@ -162,12 +165,19 @@ export async function GET(req: NextRequest) {
     // Keys bought THIS run — stops a multi-buy run from grabbing two listings of
     // the same card before either has landed in the held set.
     const boughtKeys = new Set<string>();
+    // Observability only (no behaviour change): a wallet with too little USDC
+    // skips EVERY pick and returns bought:[] — indistinguishable in the logs from
+    // "nothing was eligible". Count the skips so a starved bot is obvious.
+    let unaffordable = 0;
 
     for (const c of picks) {
       if (bought.length >= config.maxBuysPerRun) break;
       // skip picks we can't afford and fall through to the next-biggest discount,
       // rather than stalling on an unaffordable top pick
-      if (remainingUsdc < c.priceUsd) continue;
+      if (remainingUsdc < c.priceUsd) {
+        unaffordable++;
+        continue;
+      }
       // skip a card we already bought earlier in this same run
       const key = candidateKey(c);
       if (config.skipDuplicates && dedupeCats.includes(c.category ?? "") && boughtKeys.has(key)) continue;
@@ -189,6 +199,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Starved = there WAS something to buy and we could afford none of it. Alert
+    // so this can't rot silently (no-op until CC_ALERT_WEBHOOK is set).
+    const cheapestEligibleUsd = picks.length ? Math.min(...picks.map((p) => p.priceUsd)) : null;
+    const starved = bought.length === 0 && unaffordable > 0;
+    if (starved) {
+      await alert(
+        `⛔ cc-sniper STARVED: ${unaffordable} eligible pick(s) all unaffordable. ` +
+          `USDC=${bal.usdc.toFixed(2)}, cheapest eligible=$${cheapestEligibleUsd}. Fund the burner.`
+      );
+    }
+
     return NextResponse.json({
       ok: true,
       mode: "LIVE",
@@ -198,6 +219,10 @@ export async function GET(req: NextRequest) {
       heldCards: heldKeys?.size ?? null,
       skippedDuplicates: dedupedOut,
       eligible: picks.length,
+      unaffordable,
+      starved,
+      usdcBalance: Math.round(bal.usdc * 100) / 100,
+      cheapestEligibleUsd,
       bought,
     });
   } catch (err: any) {

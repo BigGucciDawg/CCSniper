@@ -53,7 +53,13 @@ export const config = {
   // more:
   //   insured >= pokemonDiscountTierUsd -> require pokemonMinMarginHigh
   //   insured <  pokemonDiscountTierUsd -> require pokemonMinMarginLow
-  pokemonMaxInsuredUsd: num("CC_POKEMON_MAX_INSURED_USD", 200),
+  // NOTE (2026-08-16, Luke: "highest discount, cards under 100 insured"): the cap
+  // is now 100 == pokemonDiscountTierUsd, so the HIGH tier branch is currently
+  // unreachable and every eligible card is judged against pokemonMinMarginLow
+  // (7.5%). The tier knobs are kept so raising the cap restores sane tiering.
+  // Among everything that clears the gate the buyer takes the BIGGEST discount
+  // first (see the spreadPct sort in /api/cron/snipe).
+  pokemonMaxInsuredUsd: num("CC_POKEMON_MAX_INSURED_USD", 100),
   pokemonDiscountTierUsd: num("CC_POKEMON_DISCOUNT_TIER_USD", 100),
   pokemonMinMarginHigh: num("CC_POKEMON_MIN_MARGIN_HIGH", 0.1),
   pokemonMinMarginLow: num("CC_POKEMON_MIN_MARGIN_LOW", 0.075),
